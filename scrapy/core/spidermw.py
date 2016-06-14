@@ -60,8 +60,18 @@ class SpiderMiddlewareManager(MiddlewareManager):
             return _failure
 
         def process_spider_output(result):
+            def wrapper(result_iterable):
+                try:
+                    for r in result_iterable:
+                        yield r
+                except Exception as ex:
+                    exception_result = process_spider_exception(Failure(ex))
+                    if exception_result is None or isinstance(exception_result, Failure):
+                        raise
+                    for output in exception_result:
+                        yield output
             for method in self.methods['process_spider_output']:
-                result = method(response=response, result=result, spider=spider)
+                result = wrapper(method(response=response, result=result, spider=spider))
                 assert _isiterable(result), \
                     'Middleware %s must returns an iterable object, got %s ' % \
                     (fname(method), type(result))

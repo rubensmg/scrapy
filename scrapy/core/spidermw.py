@@ -41,7 +41,7 @@ class SpiderMiddlewareManager(MiddlewareManager):
                 try:
                     result = method(response=response, spider=spider)
                     assert result is None, \
-                            'Middleware %s must returns None or ' \
+                            'Middleware %s must return None or ' \
                             'raise an exception, got %s ' \
                             % (fname(method), type(result))
                 except:
@@ -71,10 +71,11 @@ class SpiderMiddlewareManager(MiddlewareManager):
                     for output in exception_result:
                         yield output
             for method in self.methods['process_spider_output']:
-                result = wrapper(method(response=response, result=result, spider=spider))
-                assert _isiterable(result), \
-                    'Middleware %s must returns an iterable object, got %s ' % \
-                    (fname(method), type(result))
+                result = method(response=response, result=result, spider=spider)
+                if _isiterable(result):
+                    result = wrapper(result)
+                else:
+                    raise AssertionError('Middleware %s must return an iterable object, got %s' % (fname(method), type(result)))
             return result
 
         dfd = mustbe_deferred(process_spider_input, response)

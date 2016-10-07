@@ -87,7 +87,7 @@ class HandleExceptionFromMiddlewareOnInputSpider(Spider):
         }
     }
     def parse(self, response):
-        pass
+        None
 
 
 class RaiseExceptionOnInputMiddleware(object):
@@ -107,13 +107,49 @@ class HandleExceptionFromMiddlewareOnOutputSpider(Spider):
         }
     }
     def parse(self, response):
-        pass
+        None
 
 
 class RaiseExceptionOnOutputMiddleware(object):
     def process_spider_output(self, response, result, spider):
         yield {'value': 123}
         raise IndentationError
+
+
+# ==================================================
+# do not handle exceptions when returning invalid values
+class ReturnInvalidValueInputSpider(Spider):
+    name = 'return_invalid_value_input_spider'
+    start_urls = ["http://example.com/"]
+    custom_settings = {
+        'SPIDER_MIDDLEWARES': {
+            'tests.test_spidermiddleware.ReturnInvalidValueInputMiddleware': 530,
+        }
+    }
+    def parse(self, response):
+        return None
+
+
+class ReturnInvalidValueInputMiddleware(object):
+    def process_spider_input(self, response, spider):
+        return 1234  # not an iterable
+
+
+class ReturnInvalidValueOutputSpider(Spider):
+    name = 'return_invalid_value_output_spider'
+    start_urls = ["http://example.com/"]
+    custom_settings = {
+        'SPIDER_MIDDLEWARES': {
+            'tests.test_spidermiddleware.ReturnInvalidValueOutputMiddleware': 530,
+        }
+    }
+    def parse(self, response):
+        return None
+
+
+class ReturnInvalidValueOutputMiddleware(object):
+    def process_spider_output(self, response, result, spider):
+        return 1.2  # not an iterable
 
 
 class TestSpiderMiddleware(TestCase):
@@ -166,3 +202,17 @@ class TestSpiderMiddleware(TestCase):
             yield crawler.crawl()
         self.assertIn("'item_scraped_count': 3", str(log))
         self.assertIn("IndentationError exception handled", str(log))
+
+    @defer.inlineCallbacks
+    def test_invalid_value_on_middleware_input(self):
+        crawler = get_crawler(ReturnInvalidValueInputSpider)
+        with LogCapture() as log:
+            yield crawler.crawl()
+        self.assertIn("'spider_exceptions/AssertionError': 1", str(log))
+
+    @defer.inlineCallbacks
+    def test_invalid_value_on_middleware_output(self):
+        crawler = get_crawler(ReturnInvalidValueOutputSpider)
+        with LogCapture() as log:
+            yield crawler.crawl()
+        self.assertIn("'spider_exceptions/AssertionError': 1", str(log))

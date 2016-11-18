@@ -1,3 +1,5 @@
+# -*- coding: utf-8 -*-
+
 import re
 import logging
 from unittest import TestCase
@@ -8,12 +10,14 @@ from scrapy.spiders import Spider
 from scrapy.utils.test import get_crawler
 from scrapy.exceptions import NotConfigured
 from scrapy.downloadermiddlewares.cookies import CookiesMiddleware
+from scrapy.downloadermiddlewares.defaultheaders import DefaultHeadersMiddleware
+from scrapy.utils.python import to_bytes
 
 
 class CookiesMiddlewareTest(TestCase):
 
     def assertCookieValEqual(self, first, second, msg=None):
-        cookievaleq = lambda cv: re.split(';\s*', cv.decode('latin1'))
+        cookievaleq = lambda cv: re.split(b';\s*', to_bytes(cv))
         return self.assertEqual(
             sorted(cookievaleq(first)),
             sorted(cookievaleq(second)), msg)
@@ -229,3 +233,35 @@ class CookiesMiddlewareTest(TestCase):
         assert self.mw.process_request(request, self.spider) is None
         self.assertIn('Cookie', request.headers)
         self.assertEqual(b'currencyCookie=USD', request.headers['Cookie'])
+
+    def test_keep_cookie_from_default_request_headers_middleware(self):
+        DEFAULT_REQUEST_HEADERS = dict(Cookie='default=value; asdf=qwerty')
+        mw_default_headers = DefaultHeadersMiddleware(DEFAULT_REQUEST_HEADERS.items())
+        # overwrite with values from 'cookies' request argument
+        req1 = Request('http://example.org', cookies={'default': 'something'})
+        assert mw_default_headers.process_request(req1, self.spider) is None
+        assert self.mw.process_request(req1, self.spider) is None
+        self.assertCookieValEqual(req1.headers['Cookie'], b'default=something; asdf=qwerty')
+        # keep both
+        req2 = Request('http://example.com', cookies={'a': 'b'})
+        assert mw_default_headers.process_request(req2, self.spider) is None
+        assert self.mw.process_request(req2, self.spider) is None
+        self.assertCookieValEqual(req2.headers['Cookie'], b'default=value; a=b; asdf=qwerty')
+
+    def test_keep_cookie_header(self):
+        # keep only cookies from 'Cookie' request header
+        req1 = Request('http://scrapytest.org', headers={'Cookie': 'a=b; c=d'})
+        assert self.mw.process_request(req1, self.spider) is None
+        self.assertCookieValEqual(req1.headers['Cookie'], 'a=b; c=d')
+        # keep cookies from both 'Cookie' request header and 'cookies' keyword
+        req2 = Request('http://scrapytest.org', headers={'Cookie': 'a=b; c=d'}, cookies={'e': 'f'})
+        assert self.mw.process_request(req2, self.spider) is None
+        self.assertCookieValEqual(req2.headers['Cookie'], 'a=b; c=d; e=f')
+        # overwrite values from 'Cookie' request header with 'cookies' keyword
+        req3 = Request('http://scrapytest.org', headers={'Cookie': 'a=b; c=d'}, cookies={'a': 'new', 'e': 'f'})
+        assert self.mw.process_request(req3, self.spider) is None
+        self.assertCookieValEqual(req3.headers['Cookie'], 'a=new; c=d; e=f')
+        # non-ASCII UTF-8 values
+        req5 = Request('http://example.org', headers={'Cookie': u'a=ä'}, cookies={'e': u'ê'})
+        assert self.mw.process_request(req5, self.spider) is None
+        self.assertCookieValEqual(req5.headers['Cookie'], u'a=ä; e=ê')

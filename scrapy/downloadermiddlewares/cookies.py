@@ -1,12 +1,13 @@
 import os
 import six
 import logging
+import re
 from collections import defaultdict
 
 from scrapy.exceptions import NotConfigured
 from scrapy.http import Response
 from scrapy.http.cookies import CookieJar
-from scrapy.utils.python import to_native_str
+from scrapy.utils.python import to_native_str, to_bytes
 
 logger = logging.getLogger(__name__)
 
@@ -71,16 +72,24 @@ class CookiesMiddleware(object):
 
     def _format_cookie(self, cookie):
         # build cookie string
-        cookie_str = '%s=%s' % (cookie['name'], cookie['value'])
+        cookie_str = to_bytes(cookie['name']) + b'=' + to_bytes(cookie['value'])
 
         if cookie.get('path', None):
-            cookie_str += '; Path=%s' % cookie['path']
+            cookie_str += b'; Path=' + to_bytes(cookie['path'])
         if cookie.get('domain', None):
-            cookie_str += '; Domain=%s' % cookie['domain']
+            cookie_str += b'; Domain=' + to_bytes(cookie['domain'])
 
         return cookie_str
 
     def _get_request_cookies(self, jar, request):
+        # from 'Cookie' request header
+        cookie_header = to_bytes(request.headers.get('Cookie', ''))
+        cookie_list = re.split(b';\s*', cookie_header)
+        headers = {'Set-Cookie': cookie_list}
+        response = Response(request.url, headers=headers)
+        cookies_from_header = jar.make_cookies(response, request)
+
+        # from request 'cookies' attribute
         if isinstance(request.cookies, dict):
             cookie_list = [{'name': k, 'value': v} for k, v in \
                     six.iteritems(request.cookies)]
@@ -90,5 +99,6 @@ class CookiesMiddleware(object):
         cookies = [self._format_cookie(x) for x in cookie_list]
         headers = {'Set-Cookie': cookies}
         response = Response(request.url, headers=headers)
+        cookies_from_attribute = jar.make_cookies(response, request)
 
-        return jar.make_cookies(response, request)
+        return cookies_from_header + cookies_from_attribute

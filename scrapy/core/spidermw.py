@@ -3,6 +3,8 @@ Spider Middleware manager
 
 See documentation in docs/topics/spider-middleware.rst
 """
+import re
+
 import six
 from twisted.python.failure import Failure
 from scrapy.middleware import MiddlewareManager
@@ -36,6 +38,9 @@ class SpiderMiddlewareManager(MiddlewareManager):
                 six.get_method_self(f).__class__.__name__,
                 six.get_method_function(f).__name__)
 
+        re_assertion_error = re.compile("Middleware .*\.process_spider_input must return\s" \
+                                        "None or raise an exception, got <type|class '.*'>")
+
         def process_spider_input(response):
             for method in self.methods['process_spider_input']:
                 try:
@@ -50,6 +55,10 @@ class SpiderMiddlewareManager(MiddlewareManager):
 
         def process_spider_exception(_failure):
             exception = _failure.value
+            # ignore AssertionError from middleware's manager
+            if isinstance(exception, AssertionError) and len(exception.args) > 0 \
+               and re_assertion_error.search(exception.args[0]):
+                return _failure
             for method in self.methods['process_spider_exception']:
                 result = method(response=response, exception=exception, spider=spider)
                 assert result is None or _isiterable(result), \

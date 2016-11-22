@@ -22,7 +22,7 @@ class NotAGeneratorSpider(BaseExceptionFromParseMethodSpider):
     """ return value is NOT a generator """
     name = 'not_a_generator'
     def parse(self, response):
-        raise ZeroDivisionError
+        raise AssertionError
 
 class GeneratorErrorBeforeItemsSpider(BaseExceptionFromParseMethodSpider):
     """ return value is a generator; the exception is raised
@@ -93,6 +93,46 @@ class RaiseExceptionOnOutputGeneratorMiddleware(object):
         raise NameError
 
 
+# ================================================================================
+# don't catch AssertionError from scrapy's spider middleware manager
+class InvalidReturnValueFromPreviousMiddlewareInputSpider(Spider):
+    start_urls = ["http://example.com/"]
+    name = 'invalid_return_value_from_previous_middleware_input'
+    custom_settings = {
+        'SPIDER_MIDDLEWARES': {
+            # engine side
+            'tests.test_spidermiddleware.InvalidReturnValueInputMiddleware': 540,
+            'tests.test_spidermiddleware.CatchExceptionMiddleware': 545,
+            # spider side
+        }
+    }
+    def parse(self, response):
+        return None
+
+class InvalidReturnValueInputMiddleware(object):
+    def process_spider_input(self, response, spider):
+        return 1.0  # <type 'float'>, not None
+
+
+class InvalidReturnValueFromPreviousMiddlewareOutputSpider(Spider):
+    start_urls = ["http://example.com/"]
+    name = 'invalid_return_value_from_previous_middleware_output'
+    custom_settings = {
+        'SPIDER_MIDDLEWARES': {
+            # engine side
+            'tests.test_spidermiddleware.CatchExceptionMiddleware': 540,
+            'tests.test_spidermiddleware.InvalidReturnValueOutputMiddleware': 545,
+            # spider side
+        }
+    }
+    def parse(self, response):
+        return None
+
+class InvalidReturnValueOutputMiddleware(object):
+    def process_spider_output(self, response, result, spider):
+        return 1  # <type 'int'>, not an iterable
+
+
 class TestSpiderMiddleware(TestCase):
 
     @defer.inlineCallbacks
@@ -101,8 +141,8 @@ class TestSpiderMiddleware(TestCase):
         crawler = get_crawler(NotAGeneratorSpider)
         with LogCapture() as log:
             yield crawler.crawl()
-        self.assertIn("ZeroDivisionError exception caught", str(log))
-        self.assertIn("spider_exceptions/ZeroDivisionError", str(log))
+        self.assertIn("AssertionError exception caught", str(log))
+        self.assertIn("spider_exceptions/AssertionError", str(log))
         # generator return value, no items before the error
         crawler = get_crawler(GeneratorErrorBeforeItemsSpider)
         with LogCapture() as log:
@@ -130,3 +170,19 @@ class TestSpiderMiddleware(TestCase):
             yield crawler.crawl()
         self.assertIn("'item_scraped_count': 3", str(log))
         self.assertIn("NameError exception caught", str(log))
+
+    @defer.inlineCallbacks
+    def test_process_spider_exception_invalid_return_value_previous_middleware(self):
+        """ don't catch AssertionError """
+        # on middleware's input
+        crawler1 = get_crawler(InvalidReturnValueFromPreviousMiddlewareInputSpider)
+        with LogCapture() as log1:
+            yield crawler1.crawl()
+        self.assertNotIn("AssertionError exception caught", str(log1))
+        self.assertIn("'spider_exceptions/AssertionError'", str(log1))
+        # on middleware's output
+        crawler2 = get_crawler(InvalidReturnValueFromPreviousMiddlewareOutputSpider)
+        with LogCapture() as log2:
+            yield crawler2.crawl()
+        self.assertNotIn("AssertionError exception caught", str(log2))
+        self.assertIn("'spider_exceptions/AssertionError'", str(log2))

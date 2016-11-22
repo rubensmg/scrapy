@@ -53,7 +53,7 @@ class SpiderMiddlewareManager(MiddlewareManager):
             for method in self.methods['process_spider_exception']:
                 result = method(response=response, exception=exception, spider=spider)
                 assert result is None or _isiterable(result), \
-                    'Middleware %s must returns None, or an iterable object, got %s ' % \
+                    'Middleware %s must return None, or an iterable object, got %s ' % \
                     (fname(method), type(result))
                 if result is not None:
                     return result

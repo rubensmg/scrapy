@@ -50,6 +50,27 @@ class CatchExceptionMiddleware(object):
 
 
 # ================================================================================
+# exception from a previous middleware's process_spider_input method
+class FromPreviousMiddlewareInputSpider(Spider):
+    start_urls = ["http://example.com/"]
+    name = 'not_a_generator_from_previous_middleware_input'
+    custom_settings = {
+        'SPIDER_MIDDLEWARES': {
+            # engine side
+            'tests.test_spidermiddleware.CatchExceptionMiddleware': 540,
+            'tests.test_spidermiddleware.RaiseExceptionOnInputMiddleware': 545,
+            # spider side
+        }
+    }
+    def parse(self, response):
+        return None
+
+class RaiseExceptionOnInputMiddleware(object):
+    def process_spider_input(self, response, spider):
+        raise LookupError
+
+
+# ================================================================================
 # exception from a previous middleware's process_spider_output method (not a generator)
 class NotAGeneratorFromPreviousMiddlewareOutputSpider(Spider):
     start_urls = ["http://example.com/"]
@@ -206,6 +227,13 @@ class TestSpiderMiddleware(TestCase):
         self.assertIn("'item_scraped_count': 3", str(log))
         self.assertIn("FloatingPointError exception caught", str(log))
         self.assertIn("spider_exceptions/FloatingPointError", str(log))
+
+    @defer.inlineCallbacks
+    def test_process_spider_exception_from_previous_middleware_input(self):
+        crawler = get_crawler(FromPreviousMiddlewareInputSpider)
+        with LogCapture() as log:
+            yield crawler.crawl()
+        self.assertIn("LookupError exception caught", str(log))
 
     @defer.inlineCallbacks
     def test_process_spider_exception_from_previous_middleware_output(self):

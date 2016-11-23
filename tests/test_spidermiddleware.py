@@ -7,8 +7,12 @@ from twisted.internet import defer
 
 from scrapy.spiders import Spider
 from scrapy.item import Item, Field
+from scrapy.http import Request
 from scrapy.utils.test import get_crawler
 
+
+class TestItem(Item):
+    value = Field()
 
 # ================================================================================
 # exceptions from a spider's parse method
@@ -112,6 +116,28 @@ class RaiseExceptionOnOutputGeneratorMiddleware(object):
         for r in result:
             yield r
         raise NameError
+
+
+# ================================================================================
+# do something useful from the exception handler
+class DoSomethingSpider(Spider):
+    start_urls = ["http://example.com"]
+    name = 'do_something'
+    custom_settings = {
+        'SPIDER_MIDDLEWARES': {
+            # engine side
+            'tests.test_spidermiddleware.DoSomethingMiddleware': 540,
+            'tests.test_spidermiddleware.CatchExceptionMiddleware': 545,
+            # spider side
+        }
+    }
+    def parse(self, response):
+        yield {'value': response.url}
+        raise ImportError
+
+class DoSomethingMiddleware(object):
+    def process_spider_exception(self, response, exception, spider):
+        return [Request('http://example.org'), {'value': 10}, TestItem(value='asdf')]
 
 
 # ================================================================================
@@ -248,6 +274,17 @@ class TestSpiderMiddleware(TestCase):
             yield crawler.crawl()
         self.assertIn("'item_scraped_count': 3", str(log))
         self.assertIn("NameError exception caught", str(log))
+
+    @defer.inlineCallbacks
+    def test_process_spider_exception_do_something(self):
+        crawler = get_crawler(DoSomethingSpider)
+        with LogCapture() as log:
+            yield crawler.crawl()
+        self.assertIn("ImportError exception caught", str(log))
+        self.assertIn("{'value': 10}", str(log))
+        self.assertIn("{'value': 'asdf'}", str(log))
+        self.assertIn("{'value': 'http://example.com'}", str(log))
+        self.assertIn("{'value': 'http://example.org'}", str(log))
 
     @defer.inlineCallbacks
     def test_process_spider_exception_invalid_return_value_previous_middleware(self):

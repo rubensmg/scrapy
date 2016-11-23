@@ -120,7 +120,8 @@ following methods:
         exception reaches the engine (where it's logged and discarded).
 
         If it returns an iterable the :meth:`process_spider_output` pipeline
-        kicks in, and no other :meth:`process_spider_exception` will be called.
+        kicks in, starting with the last non-executed method, and no other
+        :meth:`process_spider_exception` will be called.
 
         :param response: the response being processed when the exception was
           raised

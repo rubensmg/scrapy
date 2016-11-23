@@ -133,6 +133,56 @@ class InvalidReturnValueOutputMiddleware(object):
         return 1  # <type 'int'>, not an iterable
 
 
+# ================================================================================
+# make sure only non already called process_spider_output methods
+# are called if process_spider_exception returns an iterable
+class ExecutionChainSpider(Spider):
+    start_urls = ["http://example.com"]
+    name = 'execution_chain'
+    custom_settings = {
+        'SPIDER_MIDDLEWARES': {
+            # engine side
+            'tests.test_spidermiddleware.ThirdMiddleware': 540,
+            'tests.test_spidermiddleware.SecondMiddleware': 541,
+            'tests.test_spidermiddleware.FirstMiddleware': 542
+            # spider side
+        },
+    }
+    def parse(self, response):
+        return None
+
+class FirstMiddleware(object):
+    def process_spider_output(self, response, result, spider):
+        for r in result:
+            if isinstance(r, dict):
+                r['handled_by_first_middleware'] = True
+            yield r
+
+    def process_spider_exception(self, response, exception, spider):
+        # log exception, handle control to the next middleware's process_spider_exception
+        logging.warn('{} exception caught'.format(exception.__class__.__name__))
+        return None
+
+class SecondMiddleware(object):
+    def process_spider_output(self, response, result, spider):
+        for r in result:
+            if isinstance(r, dict):
+                r['handled_by_second_middleware'] = True
+            yield r
+        raise MemoryError
+
+class ThirdMiddleware(object):
+    def process_spider_output(self, response, result, spider):
+        for r in result:
+            if isinstance(r, dict):
+                r['handled_by_third_middleware'] = True
+            yield r
+
+    def process_spider_exception(self, response, exception, spider):
+        # handle control to the next middleware's process_spider_output
+        return [{'item': i} for i in range(3)]
+
+
 class TestSpiderMiddleware(TestCase):
 
     @defer.inlineCallbacks
@@ -186,3 +236,14 @@ class TestSpiderMiddleware(TestCase):
             yield crawler2.crawl()
         self.assertNotIn("AssertionError exception caught", str(log2))
         self.assertIn("'spider_exceptions/AssertionError'", str(log2))
+
+    @defer.inlineCallbacks
+    def test_process_spider_exception_execution_chain(self):
+        # on middleware's input
+        crawler1 = get_crawler(ExecutionChainSpider)
+        with LogCapture() as log1:
+            yield crawler1.crawl()
+        self.assertNotIn("handled_by_first_middleware", str(log1))
+        self.assertNotIn("handled_by_second_middleware", str(log1))
+        self.assertIn("MemoryError exception caught", str(log1))
+        self.assertIn("handled_by_third_middleware", str(log1))

@@ -8,6 +8,7 @@ import six
 from twisted.internet import defer
 
 from scrapy.http import Request, Response
+from scrapy.exceptions import InvalidValue
 from scrapy.middleware import MiddlewareManager
 from scrapy.utils.defer import mustbe_deferred
 from scrapy.utils.conf import build_component_list
@@ -35,25 +36,26 @@ class DownloaderMiddlewareManager(MiddlewareManager):
         def process_request(request):
             for method in self.methods['process_request']:
                 response = yield method(request=request, spider=spider)
-                assert response is None or isinstance(response, (Response, Request)), \
-                        'Middleware %s.process_request must return None, Response or Request, got %s' % \
-                        (six.get_method_self(method).__class__.__name__, response.__class__.__name__)
+                if response is not None and not isinstance(response, (Response, Request)):
+                    raise InvalidValue('Middleware {}.process_request must return None, Response or Request, ' \
+                        'got {}'.format(six.get_method_self(method).__class__.__name__, response.__class__.__name__))
                 if response:
                     defer.returnValue(response)
             defer.returnValue((yield download_func(request=request,spider=spider)))
 
         @defer.inlineCallbacks
         def process_response(response):
-            assert response is not None, 'Received None in process_response'
+            if response is None:
+                raise InvalidValue('Received None in process_response')
             if isinstance(response, Request):
                 defer.returnValue(response)
 
             for method in self.methods['process_response']:
                 response = yield method(request=request, response=response,
                                         spider=spider)
-                assert isinstance(response, (Response, Request)), \
-                    'Middleware %s.process_response must return Response or Request, got %s' % \
-                    (six.get_method_self(method).__class__.__name__, type(response))
+                if not isinstance(response, (Response, Request)):
+                    raise InvalidValue('Middleware {}.process_response must return Response or Request, ' \
+                        'got {}'.format(six.get_method_self(method).__class__.__name__, type(response)))
                 if isinstance(response, Request):
                     defer.returnValue(response)
             defer.returnValue(response)
@@ -64,9 +66,9 @@ class DownloaderMiddlewareManager(MiddlewareManager):
             for method in self.methods['process_exception']:
                 response = yield method(request=request, exception=exception,
                                         spider=spider)
-                assert response is None or isinstance(response, (Response, Request)), \
-                    'Middleware %s.process_exception must return None, Response or Request, got %s' % \
-                    (six.get_method_self(method).__class__.__name__, type(response))
+                if response is not None and not isinstance(response, (Response, Request)):
+                    raise InvalidValue('Middleware {}.process_exception must return None, Response or Request, ' \
+                        'got {}'.format(six.get_method_self(method).__class__.__name__, type(response)))
                 if response:
                     defer.returnValue(response)
             defer.returnValue(_failure)

@@ -7,6 +7,7 @@ import re
 
 import six
 from twisted.python.failure import Failure
+from scrapy.exceptions import InvalidValue
 from scrapy.middleware import MiddlewareManager
 from scrapy.utils.defer import mustbe_deferred
 from scrapy.utils.conf import build_component_list
@@ -38,32 +39,29 @@ class SpiderMiddlewareManager(MiddlewareManager):
                 six.get_method_self(f).__class__.__name__,
                 six.get_method_function(f).__name__)
 
-        re_assertion_error = re.compile("Middleware .*\.process_spider_input must return\s" \
-                                        "None or raise an exception, got <type|class '.*'>")
-
         def process_spider_input(response):
             for method in self.methods['process_spider_input']:
                 try:
                     result = method(response=response, spider=spider)
-                    assert result is None, \
-                            'Middleware %s must return None or ' \
-                            'raise an exception, got %s ' \
-                            % (fname(method), type(result))
+                    if result is not None:
+                        raise InvalidValue('Middleware {} must return None or raise ' \
+                            'an exception, got {}'.format(fname(method), type(result)))
                 except:
                     return scrape_func(Failure(), request, spider)
             return scrape_func(response, request, spider)
 
         def process_spider_exception(_failure):
             exception = _failure.value
-            # ignore AssertionError from middleware's manager
-            if isinstance(exception, AssertionError) and len(exception.args) > 0 \
-               and re_assertion_error.search(exception.args[0]):
+            # ignore InvalidValue exception from middleware's manager
+            if isinstance(exception, InvalidValue):
                 return _failure
             for method in self.methods['process_spider_exception']:
                 result = method(response=response, exception=exception, spider=spider)
-                assert result is None or _isiterable(result), \
-                    'Middleware %s must return None, or an iterable object, got %s ' % \
-                    (fname(method), type(result))
+                if result is not None and not _isiterable(result):
+                    raise InvalidValue('Middleware {} must return None or an iterable ' \
+                        'object, got {}'.format(fname(method), type(result)))
+                # stop exception handling by handing control over to the
+                # process_spider_output chain if an iterable has been returned
                 if result is not None:
                     return result
             return _failure
@@ -84,7 +82,8 @@ class SpiderMiddlewareManager(MiddlewareManager):
                 if _isiterable(result):
                     result = wrapper(result)
                 else:
-                    raise AssertionError('Middleware %s must return an iterable object, got %s' % (fname(method), type(result)))
+                    raise InvalidValue('Middleware {} must return an iterable object, ' \
+                        'got {}'.format(fname(method), type(result)))
             return result
 
         dfd = mustbe_deferred(process_spider_input, response)

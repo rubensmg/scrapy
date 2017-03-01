@@ -116,6 +116,28 @@ class CookiesMiddlewareTest(TestCase):
         assert self.mw.process_request(req2, self.spider) is None
         self.assertIn('Cookie', req2.headers)
 
+        # non-ASCII utf8 values
+        req3 = Request('http://example.org', headers={'Cookie': u'a=ä'}, cookies={'e': u'ê'})
+        assert self.mw.process_request(req3, self.spider) is None
+        self.assertCookieValEqual(req3.headers['Cookie'], u'a=ä; e=ê')
+
+        # non-ASCII values (latin1 encoding)
+        headers = {'Cookie': u'a=ä; e=eee'.encode('latin1')}
+        req4 = Request('http://example.com', headers=headers)
+        assert self.mw.process_request(req4, self.spider) is None
+        self.assertCookieValEqual(req4.headers['Cookie'], u'a=ä; e=eee')
+
+        cookies = {'e': 'eee', 'a': u'ä'.encode('latin1')}
+        req5 = Request('http://example.com', cookies=cookies)
+        assert self.mw.process_request(req5, self.spider) is None
+        self.assertCookieValEqual(req5.headers['Cookie'], u'a=ä; e=eee')
+
+        headers = {'Cookie': u'a=ä;'.encode('latin1')}
+        cookies = {'e': u'è'.encode('latin1')}
+        req6 = Request('http://example.com', headers=headers, cookies=cookies)
+        assert self.mw.process_request(req6, self.spider) is None
+        self.assertCookieValEqual(req6.headers['Cookie'], u'a=ä; e=è')
+
     def test_dont_merge_cookies(self):
         # merge some cookies into jar
         headers = {'Set-Cookie': 'C1=value1; path=/'}
@@ -261,7 +283,3 @@ class CookiesMiddlewareTest(TestCase):
         req3 = Request('http://scrapytest.org', headers={'Cookie': 'a=b; c=d'}, cookies={'a': 'new', 'e': 'f'})
         assert self.mw.process_request(req3, self.spider) is None
         self.assertCookieValEqual(req3.headers['Cookie'], 'a=new; c=d; e=f')
-        # non-ASCII UTF-8 values
-        req5 = Request('http://example.org', headers={'Cookie': u'a=ä'}, cookies={'e': u'ê'})
-        assert self.mw.process_request(req5, self.spider) is None
-        self.assertCookieValEqual(req5.headers['Cookie'], u'a=ä; e=ê')

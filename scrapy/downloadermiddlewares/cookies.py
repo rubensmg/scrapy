@@ -72,19 +72,31 @@ class CookiesMiddleware(object):
 
     def _format_cookie(self, cookie):
         # build cookie string
-        cookie_str = to_bytes(cookie['name']) + b'=' + to_bytes(cookie['value'])
+        decoded = {}
+        for key in ('name', 'value', 'path', 'domain'):
+            if cookie.get(key, None):
+                try:
+                    decoded[key] = cookie[key].decode('utf8')
+                except UnicodeDecodeError:
+                    decoded[key] = cookie[key].decode('latin1')
+                except (UnicodeEncodeError, AttributeError):
+                    decoded[key] = cookie[key]  # already decoded
 
-        if cookie.get('path', None):
-            cookie_str += b'; Path=' + to_bytes(cookie['path'])
-        if cookie.get('domain', None):
-            cookie_str += b'; Domain=' + to_bytes(cookie['domain'])
+        cookie_str = u'{}={}'.format(decoded.pop('name'), decoded.pop('value'))
+
+        for key, value in decoded.items():  # path, domain
+            cookie_str += u'; {}={}'.format(key.capitalize(), value)
 
         return cookie_str
 
     def _get_request_cookies(self, jar, request):
         # from 'Cookie' request header
-        cookie_header = to_bytes(request.headers.get('Cookie', ''))
-        cookie_list = re.split(b';\s*', cookie_header)
+        cookie_header = request.headers.get('Cookie', b'')
+        try:
+            cookie_header = cookie_header.decode('utf8')
+        except UnicodeDecodeError:
+            cookie_header = cookie_header.decode('latin1')
+        cookie_list = re.split(u';\s*', cookie_header)
         headers = {'Set-Cookie': cookie_list}
         response = Response(request.url, headers=headers)
         cookies_from_header = jar.make_cookies(response, request)

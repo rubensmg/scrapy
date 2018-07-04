@@ -21,7 +21,7 @@ class SpiderMiddlewareManager(MiddlewareManager):
 
     component_name = 'spider middleware'
 
-    mw_methods = []  # list of dicts (process_spider_output, process_spider_exception)
+    output_chain = []  # list of dicts (process_spider_output, process_spider_exception)
 
     @classmethod
     def _get_mwlist_from_settings(cls, settings):
@@ -33,8 +33,7 @@ class SpiderMiddlewareManager(MiddlewareManager):
             self.methods['process_spider_input'].append(mw.process_spider_input)
         if hasattr(mw, 'process_start_requests'):
             self.methods['process_start_requests'].insert(0, mw.process_start_requests)
-
-        self.mw_methods.insert(0, dict(
+        self.output_chain.insert(0, dict(
             process_spider_output=getattr(mw, 'process_spider_output', None),
             process_spider_exception=getattr(mw, 'process_spider_exception', None),
         ))
@@ -83,7 +82,7 @@ class SpiderMiddlewareManager(MiddlewareManager):
 
         dfd = mustbe_deferred(process_spider_input, response)
         dfd.pause()
-        for mw in self.mw_methods:
+        for mw in self.output_chain:
             if all(mw.values()):
                 dfd.addCallbacks(
                     callback=_wrapper_process_spider_output(mw['process_spider_output']),

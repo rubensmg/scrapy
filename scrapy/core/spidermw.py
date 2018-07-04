@@ -54,43 +54,40 @@ class SpiderMiddlewareManager(MiddlewareManager):
                     return scrape_func(Failure(), request, spider)
             return scrape_func(response, request, spider)
 
-        def _wrapper_process_spider_output(method):
-            @wraps(method)
-            def callback(result):
-                result = method(response=response, result=result, spider=spider)
-                if _isiterable(result):
-                    for elem in result:
-                        yield elem
-                else:
-                    raise _InvalidOutput('Middleware {} must return an iterable, got {}' \
-                                         .format(fname(method), type(result)))
-            return callback
+        def process_spider_output(result, method):
+            result = method(response=response, result=result, spider=spider)
+            if _isiterable(result):
+                for elem in result:
+                    yield elem
+            else:
+                raise _InvalidOutput('Middleware {} must return an iterable, got {}' \
+                                     .format(fname(method), type(result)))
 
-        def _wrapper_process_spider_exception(method):
-            @wraps(method)
-            def errback(failure):
-                exception = failure.value
-                # don't handle _InvalidOutput exception
-                if isinstance(exception, _InvalidOutput):
-                    return failure
-                result = method(response=response, exception=exception, spider=spider)
-                if result is not None and not _isiterable(result):
-                    raise _InvalidOutput('Middleware {} must return None or an iterable, got {}' \
-                                         .format(fname(method), type(result)))
-                return failure if result is None else result
-            return errback
+        def process_spider_exception(failure, method):
+            exception = failure.value
+            # don't handle _InvalidOutput exception
+            if isinstance(exception, _InvalidOutput):
+                return failure
+            result = method(response=response, exception=exception, spider=spider)
+            if result is not None and not _isiterable(result):
+                raise _InvalidOutput('Middleware {} must return None or an iterable, got {}' \
+                                     .format(fname(method), type(result)))
+            return failure if result is None else result
 
         dfd = mustbe_deferred(process_spider_input, response)
         dfd.pause()
         for mw in self.output_chain:
             if all(mw.values()):
                 dfd.addCallbacks(
-                    callback=_wrapper_process_spider_output(mw['process_spider_output']),
-                    errback=_wrapper_process_spider_exception(mw['process_spider_exception']))
+                    callback=process_spider_output,
+                    callbackArgs=(mw['process_spider_output'],),
+                    errback=process_spider_exception,
+                    errbackArgs=(mw['process_spider_exception'],),
+                )
             elif mw['process_spider_output']:
-                dfd.addCallback(_wrapper_process_spider_output(mw['process_spider_output']))
+                dfd.addCallback(process_spider_output, method=mw['process_spider_output'])
             elif mw['process_spider_exception']:
-                dfd.addErrback(_wrapper_process_spider_exception(mw['process_spider_exception']))
+                dfd.addErrback(process_spider_exception, method=mw['process_spider_exception'])
         dfd.unpause()
         # XXX - debug
         print('='*100)

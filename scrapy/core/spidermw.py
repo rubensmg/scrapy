@@ -62,8 +62,8 @@ class SpiderMiddlewareManager(MiddlewareManager):
                     for elem in result:
                         yield elem
                 else:
-                    raise _InvalidOutput('Middleware {} must return an iterable object, ' \
-                        'got {}'.format(fname(method), type(result)))
+                    raise _InvalidOutput('Middleware {} must return an iterable, got {}' \
+                                         .format(fname(method), type(result)))
             return callback
 
         def _wrapper_process_spider_exception(method):
@@ -75,8 +75,8 @@ class SpiderMiddlewareManager(MiddlewareManager):
                     return failure
                 result = method(response=response, exception=exception, spider=spider)
                 if result is not None and not _isiterable(result):
-                    raise _InvalidOutput('Middleware {} must return None or an iterable ' \
-                        'object, got {}'.format(fname(method), type(result)))
+                    raise _InvalidOutput('Middleware {} must return None or an iterable, got {}' \
+                                         .format(fname(method), type(result)))
                 return failure if result is None else result
             return errback
 

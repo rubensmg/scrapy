@@ -10,8 +10,8 @@ from scrapy.utils.test import get_crawler
 from tests.mockserver import MockServer
 
 
-# TEST_URL = 'http://example.org'
 TEST_URL = 'http://localhost:8998'
+# TEST_URL = 'http://example.org'
 
 
 class LogExceptionMiddleware:
@@ -64,10 +64,11 @@ class ProcessSpiderInputSpider(Spider):
         yield Request(TEST_URL, callback=self.parse, errback=self.errback)
 
     def parse(self, response):
-        return [{'test': 1}, {'test': 2}]
+        return {{'from': 'callback', 'n': 1}, {'from': 'callback', 'n': 2}}
 
     def errback(self, failure):
         self.logger.warn('Got a Failure on the Request errback')
+        return {'from': 'errback'}
 
 
 class FailProcessSpiderInputMiddleware:
@@ -148,6 +149,8 @@ class TestSpiderMiddleware(TestCase):
         self.assertNotIn("Middleware: IndexError exception caught", str(log1))
         self.assertIn("Middleware: will raise IndexError", str(log1))
         self.assertIn("Got a Failure on the Request errback", str(log1))
+        self.assertIn("{'from': 'errback'}", str(log1))
+        self.assertIn("'item_scraped_count': 1", str(log1))
     
     @defer.inlineCallbacks
     def test_generator_callback(self):

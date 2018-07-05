@@ -4,6 +4,8 @@ Spider Middleware manager
 See documentation in docs/topics/spider-middleware.rst
 """
 from functools import wraps
+from itertools import chain
+from types import GeneratorType
 
 import six
 from twisted.python.failure import Failure
@@ -15,6 +17,16 @@ from scrapy.utils.conf import build_component_list
 
 def _isiterable(possible_iterator):
     return hasattr(possible_iterator, '__iter__')
+
+
+def _evaluate_iterable(iterable):
+    """Evaluate an iterator to raise an exception if needed"""
+    if isinstance(iterable, GeneratorType):
+        out = chain()
+        for element in iterable:
+            out = chain(out, (element,))
+        return out
+    return iterable
 
 
 class SpiderMiddlewareManager(MiddlewareManager):
@@ -57,8 +69,7 @@ class SpiderMiddlewareManager(MiddlewareManager):
         def process_spider_output(result, method):
             result = method(response=response, result=result, spider=spider)
             if _isiterable(result):
-                for elem in result:
-                    yield elem
+                return _evaluate_iterable(result)
             else:
                 raise _InvalidOutput('Middleware {} must return an iterable, got {}' \
                                      .format(fname(method), type(result)))

@@ -100,14 +100,6 @@ class SpiderMiddlewareManager(MiddlewareManager):
             elif mw['process_spider_exception']:
                 dfd.addErrback(process_spider_exception, method=mw['process_spider_exception'])
         dfd.unpause()
-        # XXX - debug
-        print('='*100)
-        for _m in dfd.callbacks:
-            print(_m)
-        print('='*100)
-        # import pdb
-        # pdb.set_trace()
-        # XXX - debug
         return dfd
 
     def process_start_requests(self, start_requests, spider):

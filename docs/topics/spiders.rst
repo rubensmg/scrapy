@@ -81,11 +81,14 @@ scrapy.Spider
        specified in this list (or their subdomains) won't be followed if
        :class:`~scrapy.spidermiddlewares.offsite.OffsiteMiddleware` is enabled.
 
+       Let's say your target url is ``https://www.example.com/1.html``,
+       then add ``'example.com'`` to the list.
+
    .. attribute:: start_urls
 
        A list of URLs where the spider will begin to crawl from, when no
        particular URLs are specified. So, the first pages downloaded will be those
-       listed here. The subsequent URLs will be generated successively from data
+       listed here. The subsequent :class:`~scrapy.http.Request` will be generated successively from data
        contained in the start URLs.
 
    .. attribute:: custom_settings
@@ -144,16 +147,12 @@ scrapy.Spider
    .. method:: start_requests()
 
        This method must return an iterable with the first Requests to crawl for
-       this spider.
+       this spider. It is called by Scrapy when the spider is opened for
+       scraping. Scrapy calls it only once, so it is safe to implement
+       :meth:`start_requests` as a generator.
 
-       This is the method called by Scrapy when the spider is opened for
-       scraping when no particular URLs are specified. If particular URLs are
-       specified, the :meth:`make_requests_from_url` is used instead to create
-       the Requests. This method is also called only once from Scrapy, so it's
-       safe to implement it as a generator.
-
-       The default implementation uses :meth:`make_requests_from_url` to
-       generate Requests for each url in :attr:`start_urls`.
+       The default implementation generates ``Request(url, dont_filter=True)``
+       for each url in :attr:`start_urls`.
 
        If you want to change the Requests used to start scraping a domain, this is
        the method to override. For example, if you need to start by logging in using
@@ -171,18 +170,6 @@ scrapy.Spider
                    # here you would extract links to follow and return Requests for
                    # each of them, with another callback
                    pass
-
-   .. method:: make_requests_from_url(url)
-
-       A method that receives a URL and returns a :class:`~scrapy.http.Request`
-       object (or a list of :class:`~scrapy.http.Request` objects) to scrape. This
-       method is used to construct the initial requests in the
-       :meth:`start_requests` method, and is typically used to convert urls to
-       requests.
-
-       Unless overridden, this method returns Requests with the :meth:`parse`
-       method as their callback function, and with dont_filter parameter enabled
-       (see :class:`~scrapy.http.Request` class for more info).
 
    .. method:: parse(response)
 
@@ -242,11 +229,11 @@ Return multiple Requests and items from a single callback::
         ]
 
         def parse(self, response):
-            for h3 in response.xpath('//h3').extract():
+            for h3 in response.xpath('//h3').getall():
                 yield {"title": h3}
 
-            for url in response.xpath('//a/@href').extract():
-                yield scrapy.Request(url, callback=self.parse)
+            for href in response.xpath('//a/@href').getall():
+                yield scrapy.Request(response.urljoin(href), self.parse)
 
 Instead of :attr:`~.start_urls` you can use :meth:`~.start_requests` directly;
 to give data more structure you can use :ref:`topics-items`::
@@ -264,11 +251,11 @@ to give data more structure you can use :ref:`topics-items`::
             yield scrapy.Request('http://www.example.com/3.html', self.parse)
 
         def parse(self, response):
-            for h3 in response.xpath('//h3').extract():
+            for h3 in response.xpath('//h3').getall():
                 yield MyItem(title=h3)
 
-            for url in response.xpath('//a/@href').extract():
-                yield scrapy.Request(url, callback=self.parse)
+            for href in response.xpath('//a/@href').getall():
+                yield scrapy.Request(response.urljoin(href), self.parse)
 
 .. _spiderargs:
 
@@ -447,8 +434,8 @@ Let's now take a look at an example CrawlSpider with rules::
             self.logger.info('Hi, this is an item page! %s', response.url)
             item = scrapy.Item()
             item['id'] = response.xpath('//td[@id="item_id"]/text()').re(r'ID: (\d+)')
-            item['name'] = response.xpath('//td[@id="item_name"]/text()').extract()
-            item['description'] = response.xpath('//td[@id="item_description"]/text()').extract()
+            item['name'] = response.xpath('//td[@id="item_name"]/text()').get()
+            item['description'] = response.xpath('//td[@id="item_description"]/text()').get()
             return item
 
 
@@ -558,12 +545,12 @@ These spiders are pretty easy to use, let's have a look at one example::
         itertag = 'item'
 
         def parse_node(self, response, node):
-            self.logger.info('Hi, this is a <%s> node!: %s', self.itertag, ''.join(node.extract()))
+            self.logger.info('Hi, this is a <%s> node!: %s', self.itertag, ''.join(node.getall()))
 
             item = TestItem()
-            item['id'] = node.xpath('@id').extract()
-            item['name'] = node.xpath('name').extract()
-            item['description'] = node.xpath('description').extract()
+            item['id'] = node.xpath('@id').get()
+            item['name'] = node.xpath('name').get()
+            item['description'] = node.xpath('description').get()
             return item
 
 Basically what we did up there was to create a spider that downloads a feed from
@@ -591,8 +578,7 @@ CSVFeedSpider
 
    .. attribute:: headers
 
-       A list of the rows contained in the file CSV feed which will be used to
-       extract fields from it.
+       A list of the column names in the CSV file.
 
    .. method:: parse_row(response, row)
 
@@ -765,8 +751,8 @@ Combine SitemapSpider with other sources of urls::
         def parse_other(self, response):
             pass # ... scrape other here ...
 
-.. _Sitemaps: http://www.sitemaps.org
-.. _Sitemap index files: http://www.sitemaps.org/protocol.html#index
+.. _Sitemaps: https://www.sitemaps.org/index.html
+.. _Sitemap index files: https://www.sitemaps.org/protocol.html#index
 .. _robots.txt: http://www.robotstxt.org/
 .. _TLD: https://en.wikipedia.org/wiki/Top-level_domain
-.. _Scrapyd documentation: http://scrapyd.readthedocs.org/en/latest/
+.. _Scrapyd documentation: https://scrapyd.readthedocs.io/en/latest/

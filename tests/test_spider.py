@@ -147,10 +147,10 @@ class XMLFeedSpiderTest(SpiderTest):
 
             def parse_node(self, response, selector):
                 yield {
-                    'loc': selector.xpath('a:loc/text()').extract(),
-                    'updated': selector.xpath('b:updated/text()').extract(),
-                    'other': selector.xpath('other/@value').extract(),
-                    'custom': selector.xpath('other/@b:custom').extract(),
+                    'loc': selector.xpath('a:loc/text()').getall(),
+                    'updated': selector.xpath('b:updated/text()').getall(),
+                    'other': selector.xpath('other/@value').getall(),
+                    'custom': selector.xpath('other/@b:custom').getall(),
                 }
 
         for iterator in ('iternodes', 'xml'):
@@ -207,7 +207,7 @@ class CrawlSpiderTest(SpiderTest):
         output = list(spider._requests_to_follow(response))
         self.assertEqual(len(output), 3)
         self.assertTrue(all(map(lambda r: isinstance(r, Request), output)))
-        self.assertEquals([r.url for r in output],
+        self.assertEqual([r.url for r in output],
                           ['http://example.org/somepage/item/12.html',
                            'http://example.org/about.html',
                            'http://example.org/nofollow.html'])
@@ -234,7 +234,7 @@ class CrawlSpiderTest(SpiderTest):
         output = list(spider._requests_to_follow(response))
         self.assertEqual(len(output), 2)
         self.assertTrue(all(map(lambda r: isinstance(r, Request), output)))
-        self.assertEquals([r.url for r in output],
+        self.assertEqual([r.url for r in output],
                           ['http://example.org/somepage/item/12.html',
                            'http://example.org/about.html'])
 
@@ -258,7 +258,7 @@ class CrawlSpiderTest(SpiderTest):
         output = list(spider._requests_to_follow(response))
         self.assertEqual(len(output), 3)
         self.assertTrue(all(map(lambda r: isinstance(r, Request), output)))
-        self.assertEquals([r.url for r in output],
+        self.assertEqual([r.url for r in output],
                           ['http://example.org/somepage/item/12.html',
                            'http://example.org/about.html',
                            'http://example.org/nofollow.html'])
@@ -328,6 +328,10 @@ class SitemapSpiderTest(SpiderTest):
         r = Response(url="http://www.example.com/sitemap.xml.gz", body=self.GZBODY)
         self.assertSitemapBody(r, self.BODY)
 
+        # .xml.gz but body decoded by HttpCompression middleware already
+        r = Response(url="http://www.example.com/sitemap.xml.gz", body=self.BODY)
+        self.assertSitemapBody(r, self.BODY)
+
     def test_get_sitemap_urls_from_robotstxt(self):
         robots = b"""# Sitemap files
 Sitemap: http://example.com/sitemap.xml
@@ -344,8 +348,35 @@ Sitemap: /sitemap-relative-url.xml
                           'http://example.com/sitemap-uppercase.xml',
                           'http://www.example.com/sitemap-relative-url.xml'])
 
+    def test_alternate_url_locs(self):
+        sitemap = b"""<?xml version="1.0" encoding="UTF-8"?>
+    <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"
+        xmlns:xhtml="http://www.w3.org/1999/xhtml">
+        <url>
+            <loc>http://www.example.com/english/</loc>
+            <xhtml:link rel="alternate" hreflang="de"
+                href="http://www.example.com/deutsch/"/>
+            <xhtml:link rel="alternate" hreflang="de-ch"
+                href="http://www.example.com/schweiz-deutsch/"/>
+            <xhtml:link rel="alternate" hreflang="it"
+                href="http://www.example.com/italiano/"/>
+            <xhtml:link rel="alternate" hreflang="it"/><!-- wrong tag without href -->
+        </url>
+    </urlset>"""
+        r = TextResponse(url="http://www.example.com/sitemap.xml", body=sitemap)
+        spider = self.spider_class("example.com")
+        self.assertEqual([req.url for req in spider._parse_sitemap(r)],
+                         ['http://www.example.com/english/'])
 
-class BaseSpiderDeprecationTest(unittest.TestCase):
+        spider.sitemap_alternate_links = True
+        self.assertEqual([req.url for req in spider._parse_sitemap(r)],
+                         ['http://www.example.com/english/',
+                          'http://www.example.com/deutsch/',
+                          'http://www.example.com/schweiz-deutsch/',
+                          'http://www.example.com/italiano/'])
+
+
+class DeprecationTest(unittest.TestCase):
 
     def test_basespider_is_deprecated(self):
         with warnings.catch_warnings(record=True) as w:
@@ -399,6 +430,43 @@ class BaseSpiderDeprecationTest(unittest.TestCase):
         assert isinstance(CrawlSpider(name='foo'), Spider)
         assert isinstance(CrawlSpider(name='foo'), BaseSpider)
 
+    def test_make_requests_from_url_deprecated(self):
+        class MySpider4(Spider):
+            name = 'spider1'
+            start_urls = ['http://example.com']
 
-if __name__ == '__main__':
-    unittest.main()
+        class MySpider5(Spider):
+            name = 'spider2'
+            start_urls = ['http://example.com']
+
+            def make_requests_from_url(self, url):
+                return Request(url + "/foo", dont_filter=True)
+
+        with warnings.catch_warnings(record=True) as w:
+            # spider without overridden make_requests_from_url method
+            # doesn't issue a warning
+            spider1 = MySpider4()
+            self.assertEqual(len(list(spider1.start_requests())), 1)
+            self.assertEqual(len(w), 0)
+
+            # spider with overridden make_requests_from_url issues a warning,
+            # but the method still works
+            spider2 = MySpider5()
+            requests = list(spider2.start_requests())
+            self.assertEqual(len(requests), 1)
+            self.assertEqual(requests[0].url, 'http://example.com/foo')
+            self.assertEqual(len(w), 1)
+
+
+class NoParseMethodSpiderTest(unittest.TestCase):
+
+    spider_class = Spider
+
+    def test_undefined_parse_method(self):
+        spider = self.spider_class('example.com')
+        text = b'Random text'
+        resp = TextResponse(url="http://www.example.com/random_url", body=text)
+
+        exc_msg = 'Spider.parse callback is not defined'
+        with self.assertRaisesRegexp(NotImplementedError, exc_msg):
+            spider.parse(resp)

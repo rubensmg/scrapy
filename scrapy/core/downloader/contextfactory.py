@@ -1,15 +1,15 @@
 from OpenSSL import SSL
 from twisted.internet.ssl import ClientContextFactory
 
-try:
+from scrapy import twisted_version
+
+if twisted_version >= (14, 0, 0):
 
     from zope.interface.declarations import implementer
 
-    # the following should be available from Twisted 14.0.0
     from twisted.internet.ssl import (optionsForClientTLS,
                                       CertificateOptions,
                                       platformTrust)
-
     from twisted.web.client import BrowserLikePolicyForHTTPS
     from twisted.web.iweb import IPolicyForHTTPS
 
@@ -64,7 +64,7 @@ try:
         """
         Twisted-recommended context factory for web clients.
 
-        Quoting http://twistedmatrix.com/documents/current/api/twisted.web.client.Agent.html:
+        Quoting https://twistedmatrix.com/documents/current/api/twisted.web.client.Agent.html:
         "The default is to use a BrowserLikePolicyForHTTPS,
         so unless you have special requirements you can leave this as-is."
 
@@ -86,7 +86,7 @@ try:
                                             'method': self._ssl_method,
                                        })
 
-except ImportError:
+else:
 
     class ScrapyClientContextFactory(ClientContextFactory):
         "A SSL context factory which is more permissive against SSL bugs."
@@ -100,6 +100,6 @@ except ImportError:
         def getContext(self, hostname=None, port=None):
             ctx = ClientContextFactory.getContext(self)
             # Enable all workarounds to SSL bugs as documented by
-            # http://www.openssl.org/docs/ssl/SSL_CTX_set_options.html
+            # https://www.openssl.org/docs/manmaster/man3/SSL_CTX_set_options.html
             ctx.set_options(SSL.OP_ALL)
             return ctx

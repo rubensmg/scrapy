@@ -13,7 +13,6 @@ Scrapy developers, if you add a setting here remember to:
 
 """
 
-import os
 import sys
 from importlib import import_module
 from os.path import join, abspath, dirname
@@ -56,7 +55,7 @@ DEFAULT_REQUEST_HEADERS = {
 }
 
 DEPTH_LIMIT = 0
-DEPTH_STATS = True
+DEPTH_STATS_VERBOSE = False
 DEPTH_PRIORITY = 0
 
 DNSCACHE_ENABLED = True
@@ -67,6 +66,7 @@ DOWNLOAD_DELAY = 0
 
 DOWNLOAD_HANDLERS = {}
 DOWNLOAD_HANDLERS_BASE = {
+    'data': 'scrapy.core.downloader.handlers.datauri.DataURIDownloadHandler',
     'file': 'scrapy.core.downloader.handlers.file.FileDownloadHandler',
     'http': 'scrapy.core.downloader.handlers.http.HTTPDownloadHandler',
     'https': 'scrapy.core.downloader.handlers.http.HTTPDownloadHandler',
@@ -78,6 +78,8 @@ DOWNLOAD_TIMEOUT = 180      # 3mins
 
 DOWNLOAD_MAXSIZE = 1024*1024*1024   # 1024m
 DOWNLOAD_WARNSIZE = 32*1024*1024    # 32m
+
+DOWNLOAD_FAIL_ON_DATALOSS = True
 
 DOWNLOADER = 'scrapy.core.downloader.Downloader'
 
@@ -111,13 +113,9 @@ DOWNLOADER_STATS = True
 
 DUPEFILTER_CLASS = 'scrapy.dupefilters.RFPDupeFilter'
 
-try:
-    EDITOR = os.environ['EDITOR']
-except KeyError:
-    if sys.platform == 'win32':
-        EDITOR = '%s -m idlelib.idle'
-    else:
-        EDITOR = 'vi'
+EDITOR = 'vi'
+if sys.platform == 'win32':
+    EDITOR = '%s -m idlelib.idle'
 
 EXTENSIONS = {}
 
@@ -158,8 +156,14 @@ FEED_EXPORTERS_BASE = {
     'marshal': 'scrapy.exporters.MarshalItemExporter',
     'pickle': 'scrapy.exporters.PickleItemExporter',
 }
+FEED_EXPORT_INDENT = 0
 
 FILES_STORE_S3_ACL = 'private'
+FILES_STORE_GCS_ACL = ''
+
+FTP_USER = 'anonymous'
+FTP_PASSWORD = 'guest'
+FTP_PASSIVE_MODE = True
 
 HTTPCACHE_ENABLED = False
 HTTPCACHE_DIR = 'httpcache'
@@ -178,6 +182,7 @@ HTTPPROXY_ENABLED = True
 HTTPPROXY_AUTH_ENCODING = 'latin-1'
 
 IMAGES_STORE_S3_ACL = 'private'
+IMAGES_STORE_GCS_ACL = ''
 
 ITEM_PROCESSOR = 'scrapy.pipelines.ItemPipelineManager'
 
@@ -208,10 +213,9 @@ MEMDEBUG_ENABLED = False        # enable memory debugging
 MEMDEBUG_NOTIFY = []            # send memory debugging report by mail at engine shutdown
 
 MEMUSAGE_CHECK_INTERVAL_SECONDS = 60.0
-MEMUSAGE_ENABLED = False
+MEMUSAGE_ENABLED = True
 MEMUSAGE_LIMIT_MB = 0
 MEMUSAGE_NOTIFY_MAIL = []
-MEMUSAGE_REPORT = False
 MEMUSAGE_WARNING_MB = 0
 
 METAREFRESH_ENABLED = True
@@ -228,10 +232,11 @@ REDIRECT_MAX_TIMES = 20  # uses Firefox default setting
 REDIRECT_PRIORITY_ADJUST = +2
 
 REFERER_ENABLED = True
+REFERRER_POLICY = 'scrapy.spidermiddlewares.referer.DefaultReferrerPolicy'
 
 RETRY_ENABLED = True
 RETRY_TIMES = 2  # initial response + 2 retries = 3 requests
-RETRY_HTTP_CODES = [500, 502, 503, 504, 408]
+RETRY_HTTP_CODES = [500, 502, 503, 504, 522, 524, 408]
 RETRY_PRIORITY_ADJUST = -1
 
 ROBOTSTXT_OBEY = False
@@ -242,6 +247,7 @@ SCHEDULER_MEMORY_QUEUE = 'scrapy.squeues.LifoMemoryQueue'
 SCHEDULER_PRIORITY_QUEUE = 'queuelib.PriorityQueue'
 
 SPIDER_LOADER_CLASS = 'scrapy.spiderloader.SpiderLoader'
+SPIDER_LOADER_WARN_ONLY = False
 
 SPIDER_MIDDLEWARES = {}
 
@@ -266,7 +272,7 @@ TEMPLATES_DIR = abspath(join(dirname(__file__), '..', 'templates'))
 
 URLLENGTH_LIMIT = 2083
 
-USER_AGENT = 'Scrapy/%s (+http://scrapy.org)' % import_module('scrapy').__version__
+USER_AGENT = 'Scrapy/%s (+https://scrapy.org)' % import_module('scrapy').__version__
 
 TELNETCONSOLE_ENABLED = 1
 TELNETCONSOLE_PORT = [6023, 6073]

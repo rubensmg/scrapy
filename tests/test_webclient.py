@@ -4,7 +4,7 @@ Tests borrowed from the twisted.web.client tests.
 """
 import os
 import six
-from six.moves.urllib.parse import urlparse
+import shutil
 
 from twisted.trial import unittest
 from twisted.web import server, static, util, resource
@@ -12,6 +12,7 @@ from twisted.internet import reactor, defer
 from twisted.test.proto_helpers import StringTransport
 from twisted.python.filepath import FilePath
 from twisted.protocols.policies import WrappingFactory
+from twisted.internet.defer import inlineCallbacks
 
 from scrapy.core.downloader import webclient as client
 from scrapy.http import Request, Headers
@@ -70,7 +71,7 @@ class ParseUrlTestCase(unittest.TestCase):
         for url, test in tests:
             test = tuple(
                 to_bytes(x) if not isinstance(x, int) else x for x in test)
-            self.assertEquals(client._parse(url), test, url)
+            self.assertEqual(client._parse(url), test, url)
 
     def test_externalUnicodeInterference(self):
         """
@@ -229,10 +230,10 @@ class WebClientTestCase(unittest.TestCase):
         return reactor.listenTCP(0, site, interface="127.0.0.1")
 
     def setUp(self):
-        name = self.mktemp()
-        os.mkdir(name)
-        FilePath(name).child("file").setContent(b"0123456789")
-        r = static.File(name)
+        self.tmpname = self.mktemp()
+        os.mkdir(self.tmpname)
+        FilePath(self.tmpname).child("file").setContent(b"0123456789")
+        r = static.File(self.tmpname)
         r.putChild(b"redirect", util.Redirect(b"/file"))
         r.putChild(b"wait", ForeverTakingResource())
         r.putChild(b"error", ErrorResource())
@@ -246,8 +247,10 @@ class WebClientTestCase(unittest.TestCase):
         self.port = self._listen(self.wrapper)
         self.portno = self.port.getHost().port
 
+    @inlineCallbacks
     def tearDown(self):
-        return self.port.stopListening()
+        yield self.port.stopListening()
+        shutil.rmtree(self.tmpname)
 
     def getURL(self, path):
         return "http://127.0.0.1:%d/%s" % (self.portno, path)
@@ -255,17 +258,16 @@ class WebClientTestCase(unittest.TestCase):
     def testPayload(self):
         s = "0123456789" * 10
         return getPage(self.getURL("payload"), body=s).addCallback(
-            self.assertEquals, to_bytes(s))
+            self.assertEqual, to_bytes(s))
 
     def testHostHeader(self):
         # if we pass Host header explicitly, it should be used, otherwise
         # it should extract from url
         return defer.gatherResults([
             getPage(self.getURL("host")).addCallback(
-                self.assertEquals, to_bytes("127.0.0.1:%d" % self.portno)),
+                self.assertEqual, to_bytes("127.0.0.1:%d" % self.portno)),
             getPage(self.getURL("host"), headers={"Host": "www.example.com"}).addCallback(
-                self.assertEquals, to_bytes("www.example.com"))])
-
+                self.assertEqual, to_bytes("www.example.com"))])
 
     def test_getPage(self):
         """
@@ -273,9 +275,8 @@ class WebClientTestCase(unittest.TestCase):
         the body of the response if the default method B{GET} is used.
         """
         d = getPage(self.getURL("file"))
-        d.addCallback(self.assertEquals, b"0123456789")
+        d.addCallback(self.assertEqual, b"0123456789")
         return d
-
 
     def test_getPageHead(self):
         """
@@ -289,7 +290,6 @@ class WebClientTestCase(unittest.TestCase):
             _getPage("head").addCallback(self.assertEqual, b""),
             _getPage("HEAD").addCallback(self.assertEqual, b"")])
 
-
     def test_timeoutNotTriggering(self):
         """
         When a non-zero timeout is passed to L{getPage} and the page is
@@ -298,9 +298,8 @@ class WebClientTestCase(unittest.TestCase):
         """
         d = getPage(self.getURL("host"), timeout=100)
         d.addCallback(
-            self.assertEquals, to_bytes("127.0.0.1:%d" % self.portno))
+            self.assertEqual, to_bytes("127.0.0.1:%d" % self.portno))
         return d
-
 
     def test_timeoutTriggering(self):
         """
@@ -327,7 +326,7 @@ class WebClientTestCase(unittest.TestCase):
         return getPage(self.getURL('notsuchfile')).addCallback(self._cbNoSuchFile)
 
     def _cbNoSuchFile(self, pageData):
-        self.assert_(b'404 - No Such Resource' in pageData)
+        self.assertIn(b'404 - No Such Resource', pageData)
 
     def testFactoryInfo(self):
         url = self.getURL('file')
@@ -337,21 +336,21 @@ class WebClientTestCase(unittest.TestCase):
         return factory.deferred.addCallback(self._cbFactoryInfo, factory)
 
     def _cbFactoryInfo(self, ignoredResult, factory):
-        self.assertEquals(factory.status, b'200')
-        self.assert_(factory.version.startswith(b'HTTP/'))
-        self.assertEquals(factory.message, b'OK')
-        self.assertEquals(factory.response_headers[b'content-length'], b'10')
+        self.assertEqual(factory.status, b'200')
+        self.assertTrue(factory.version.startswith(b'HTTP/'))
+        self.assertEqual(factory.message, b'OK')
+        self.assertEqual(factory.response_headers[b'content-length'], b'10')
 
     def testRedirect(self):
         return getPage(self.getURL("redirect")).addCallback(self._cbRedirect)
 
     def _cbRedirect(self, pageData):
-        self.assertEquals(pageData,
+        self.assertEqual(pageData,
                 b'\n<html>\n    <head>\n        <meta http-equiv="refresh" content="0;URL=/file">\n'
                 b'    </head>\n    <body bgcolor="#FFFFFF" text="#000000">\n    '
                 b'<a href="/file">click here</a>\n    </body>\n</html>\n')
 
-    def test_Encoding(self):
+    def test_encoding(self):
         """ Test that non-standart body encoding matches
         Content-Encoding header """
         body = b'\xd0\x81\xd1\x8e\xd0\xaf'
@@ -361,6 +360,6 @@ class WebClientTestCase(unittest.TestCase):
 
     def _check_Encoding(self, response, original_body):
         content_encoding = to_unicode(response.headers[b'Content-Encoding'])
-        self.assertEquals(content_encoding, EncodingResource.out_encoding)
-        self.assertEquals(
+        self.assertEqual(content_encoding, EncodingResource.out_encoding)
+        self.assertEqual(
             response.body.decode(content_encoding), to_unicode(original_body))

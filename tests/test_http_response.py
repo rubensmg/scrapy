@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 import unittest
 
 import six
@@ -8,6 +9,8 @@ from scrapy.http import (Request, Response, TextResponse, HtmlResponse,
 from scrapy.selector import Selector
 from scrapy.utils.python import to_native_str
 from scrapy.exceptions import NotSupported
+from scrapy.link import Link
+from tests import get_testdata
 
 
 class BaseResponseTest(unittest.TestCase):
@@ -140,6 +143,41 @@ class BaseResponseTest(unittest.TestCase):
             r.css('body')
             r.xpath('//body')
 
+    def test_follow_url_absolute(self):
+        self._assert_followed_url('http://foo.example.com',
+                                  'http://foo.example.com')
+
+    def test_follow_url_relative(self):
+        self._assert_followed_url('foo',
+                                  'http://example.com/foo')
+
+    def test_follow_link(self):
+        self._assert_followed_url(Link('http://example.com/foo'),
+                                  'http://example.com/foo')
+
+    def test_follow_None_url(self):
+        r = self.response_class("http://example.com")
+        self.assertRaises(ValueError, r.follow, None)
+
+    def test_follow_whitespace_url(self):
+        self._assert_followed_url('foo ',
+                                  'http://example.com/foo%20')
+
+    def test_follow_whitespace_link(self):
+        self._assert_followed_url(Link('http://example.com/foo '),
+                                  'http://example.com/foo%20')
+    def _assert_followed_url(self, follow_obj, target_url, response=None):
+        if response is None:
+            response = self._links_response()
+        req = response.follow(follow_obj)
+        self.assertEqual(req.url, target_url)
+        return req
+
+    def _links_response(self):
+        body = get_testdata('link_extractor', 'sgml_linkextractor.html')
+        resp = self.response_class('http://example.com/index', body=body)
+        return resp
+
 
 class TextResponseTest(BaseResponseTest):
 
@@ -238,7 +276,10 @@ class TextResponseTest(BaseResponseTest):
                                  headers={"Content-type": ["text/html; charset=utf-8"]},
                                  body=b"\xef\xbb\xbfWORD\xe3\xab")
         self.assertEqual(r6.encoding, 'utf-8')
-        self.assertEqual(r6.text, u'WORD\ufffd\ufffd')
+        self.assertIn(r6.text, {
+            u'WORD\ufffd\ufffd',  # w3lib < 1.19.0
+            u'WORD\ufffd',        # w3lib >= 1.19.0
+        })
 
     def test_bom_is_removed_from_body(self):
         # Inferring encoding from body also cache decoded body as sideeffect,
@@ -295,11 +336,11 @@ class TextResponseTest(BaseResponseTest):
         self.assertIs(response.selector.response, response)
 
         self.assertEqual(
-            response.selector.xpath("//title/text()").extract(),
+            response.selector.xpath("//title/text()").getall(),
             [u'Some page']
         )
         self.assertEqual(
-            response.selector.css("title::text").extract(),
+            response.selector.css("title::text").getall(),
             [u'Some page']
         )
         self.assertEqual(
@@ -312,12 +353,12 @@ class TextResponseTest(BaseResponseTest):
         response = self.response_class("http://www.example.com", body=body)
 
         self.assertEqual(
-            response.xpath("//title/text()").extract(),
-            response.selector.xpath("//title/text()").extract(),
+            response.xpath("//title/text()").getall(),
+            response.selector.xpath("//title/text()").getall(),
         )
         self.assertEqual(
-            response.css("title::text").extract(),
-            response.selector.css("title::text").extract(),
+            response.css("title::text").getall(),
+            response.selector.css("title::text").getall(),
         )
 
     def test_selector_shortcuts_kwargs(self):
@@ -325,13 +366,13 @@ class TextResponseTest(BaseResponseTest):
         response = self.response_class("http://www.example.com", body=body)
 
         self.assertEqual(
-            response.xpath("normalize-space(//p[@class=$pclass])", pclass="content").extract(),
-            response.xpath("normalize-space(//p[@class=\"content\"])").extract(),
+            response.xpath("normalize-space(//p[@class=$pclass])", pclass="content").getall(),
+            response.xpath("normalize-space(//p[@class=\"content\"])").getall(),
         )
         self.assertEqual(
             response.xpath("//title[count(following::p[@class=$pclass])=$pcount]/text()",
-                pclass="content", pcount=1).extract(),
-            response.xpath("//title[count(following::p[@class=\"content\"])=1]/text()").extract(),
+                pclass="content", pcount=1).getall(),
+            response.xpath("//title[count(following::p[@class=\"content\"])=1]/text()").getall(),
         )
 
     def test_urljoin_with_base_url(self):
@@ -350,6 +391,97 @@ class TextResponseTest(BaseResponseTest):
         joined = self.response_class('http://www.example.com', body=body).urljoin('test')
         absolute = 'http://www.example.com/elsewhere/test'
         self.assertEqual(joined, absolute)
+
+    def test_follow_selector(self):
+        resp = self._links_response()
+        urls = [
+            'http://example.com/sample2.html',
+            'http://example.com/sample3.html',
+            'http://example.com/sample3.html',
+            'http://example.com/sample3.html#foo',
+            'http://www.google.com/something',
+            'http://example.com/innertag.html'
+        ]
+
+        # select <a> elements
+        for sellist in [resp.css('a'), resp.xpath('//a')]:
+            for sel, url in zip(sellist, urls):
+                self._assert_followed_url(sel, url, response=resp)
+
+        # select <link> elements
+        self._assert_followed_url(
+            Selector(text='<link href="foo"></link>').css('link')[0],
+            'http://example.com/foo',
+            response=resp
+        )
+
+        # href attributes should work
+        for sellist in [resp.css('a::attr(href)'), resp.xpath('//a/@href')]:
+            for sel, url in zip(sellist, urls):
+                self._assert_followed_url(sel, url, response=resp)
+
+        # non-a elements are not supported
+        self.assertRaises(ValueError, resp.follow, resp.css('div')[0])
+
+    def test_follow_selector_list(self):
+        resp = self._links_response()
+        self.assertRaisesRegexp(ValueError, 'SelectorList',
+                                resp.follow, resp.css('a'))
+
+    def test_follow_selector_invalid(self):
+        resp = self._links_response()
+        self.assertRaisesRegexp(ValueError, 'Unsupported',
+                                resp.follow, resp.xpath('count(//div)')[0])
+
+    def test_follow_selector_attribute(self):
+        resp = self._links_response()
+        for src in resp.css('img::attr(src)'):
+            self._assert_followed_url(src, 'http://example.com/sample2.jpg')
+
+    def test_follow_selector_no_href(self):
+        resp = self.response_class(
+            url='http://example.com',
+            body=b'<html><body><a name=123>click me</a></body></html>',
+        )
+        self.assertRaisesRegexp(ValueError, 'no href',
+                                resp.follow, resp.css('a')[0])
+
+    def test_follow_whitespace_selector(self):
+        resp = self.response_class(
+            'http://example.com',
+            body=b'''<html><body><a href=" foo\n">click me</a></body></html>'''
+        )
+        self._assert_followed_url(resp.css('a')[0],
+                                 'http://example.com/foo',
+                                  response=resp)
+        self._assert_followed_url(resp.css('a::attr(href)')[0],
+                                 'http://example.com/foo',
+                                  response=resp)
+
+    def test_follow_encoding(self):
+        resp1 = self.response_class(
+            'http://example.com',
+            encoding='utf8',
+            body=u'<html><body><a href="foo?привет">click me</a></body></html>'.encode('utf8')
+        )
+        req = self._assert_followed_url(
+            resp1.css('a')[0],
+            'http://example.com/foo?%D0%BF%D1%80%D0%B8%D0%B2%D0%B5%D1%82',
+            response=resp1,
+        )
+        self.assertEqual(req.encoding, 'utf8')
+
+        resp2 = self.response_class(
+            'http://example.com',
+            encoding='cp1251',
+            body=u'<html><body><a href="foo?привет">click me</a></body></html>'.encode('cp1251')
+        )
+        req = self._assert_followed_url(
+            resp2.css('a')[0],
+            'http://example.com/foo?%EF%F0%E8%E2%E5%F2',
+            response=resp2,
+        )
+        self.assertEqual(req.encoding, 'cp1251')
 
 
 class HtmlResponseTest(TextResponseTest):
@@ -430,7 +562,7 @@ class XmlResponseTest(TextResponseTest):
         self.assertIs(response.selector.response, response)
 
         self.assertEqual(
-            response.selector.xpath("//elem/text()").extract(),
+            response.selector.xpath("//elem/text()").getall(),
             [u'value']
         )
 
@@ -439,8 +571,8 @@ class XmlResponseTest(TextResponseTest):
         response = self.response_class("http://www.example.com", body=body)
 
         self.assertEqual(
-            response.xpath("//elem/text()").extract(),
-            response.selector.xpath("//elem/text()").extract(),
+            response.xpath("//elem/text()").getall(),
+            response.selector.xpath("//elem/text()").getall(),
         )
 
     def test_selector_shortcuts_kwargs(self):
@@ -451,12 +583,12 @@ class XmlResponseTest(TextResponseTest):
         response = self.response_class("http://www.example.com", body=body)
 
         self.assertEqual(
-            response.xpath("//s:elem/text()", namespaces={'s': 'http://scrapy.org'}).extract(),
-            response.selector.xpath("//s:elem/text()", namespaces={'s': 'http://scrapy.org'}).extract(),
+            response.xpath("//s:elem/text()", namespaces={'s': 'http://scrapy.org'}).getall(),
+            response.selector.xpath("//s:elem/text()", namespaces={'s': 'http://scrapy.org'}).getall(),
         )
 
         response.selector.register_namespace('s2', 'http://scrapy.org')
         self.assertEqual(
-            response.xpath("//s1:elem/text()", namespaces={'s1': 'http://scrapy.org'}).extract(),
-            response.selector.xpath("//s2:elem/text()").extract(),
+            response.xpath("//s1:elem/text()", namespaces={'s1': 'http://scrapy.org'}).getall(),
+            response.selector.xpath("//s2:elem/text()").getall(),
         )

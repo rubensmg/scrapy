@@ -70,17 +70,20 @@ class CookiesMiddleware(object):
                 msg = "Received cookies from: {}\n{}".format(response, cookies)
                 logger.debug(msg, extra={'spider': spider})
 
-    def _format_cookie(self, cookie):
+    def _format_cookie(self, cookie, request):
         # build cookie string
         decoded = {}
         for key in ('name', 'value', 'path', 'domain'):
-            if cookie.get(key, None):
-                try:
-                    decoded[key] = cookie[key].decode('utf8')
-                except UnicodeDecodeError:
-                    decoded[key] = cookie[key].decode('latin1')
-                except (UnicodeEncodeError, AttributeError):
-                    decoded[key] = cookie[key]  # already decoded
+            if not cookie.get(key):
+                continue
+            if isinstance(cookie[key], six.text_type):
+                decoded[key] = cookie[key]
+                continue
+            try:
+                decoded[key] = cookie[key].decode('utf8')
+            except UnicodeDecodeError:
+                logger.warning('Non UTF-8 encoded cookie found in request %s: %s', request, cookie)
+                decoded[key] = cookie[key].decode('latin1')
 
         cookie_str = u'{}={}'.format(decoded.pop('name'), decoded.pop('value'))
 
@@ -91,13 +94,17 @@ class CookiesMiddleware(object):
 
     def _get_request_cookies(self, jar, request):
         # from 'Cookie' request header
-        cookie_header = request.headers.get('Cookie', b'')
-        try:
-            cookie_header = cookie_header.decode('utf8')
-        except UnicodeDecodeError:
-            cookie_header = cookie_header.decode('latin1')
-        cookie_list = re.split(u';\s*', cookie_header)
-        headers = {'Set-Cookie': cookie_list}
+        cookie_header = request.headers.get('Cookie') or b''
+        cookie_list_bytes = re.split(b';\s*', cookie_header)
+        cookie_list_unicode = []
+        for cookie_bytes in cookie_list_bytes:
+            try:
+                cookie_unicode = cookie_bytes.decode('utf8')
+            except UnicodeDecodeError:
+                logger.warning('Non UTF-8 encoded cookie found in request %s: %s', request, cookie_bytes)
+                cookie_unicode = cookie_bytes.decode('latin1')
+            cookie_list_unicode.append(cookie_unicode)
+        headers = {'Set-Cookie': cookie_list_unicode}
         response = Response(request.url, headers=headers)
         cookies_from_header = jar.make_cookies(response, request)
 
@@ -108,7 +115,7 @@ class CookiesMiddleware(object):
         else:
             cookie_list = request.cookies
 
-        cookies = [self._format_cookie(x) for x in cookie_list]
+        cookies = [self._format_cookie(x, request) for x in cookie_list]
         headers = {'Set-Cookie': cookies}
         response = Response(request.url, headers=headers)
         cookies_from_attribute = jar.make_cookies(response, request)
